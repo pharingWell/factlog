@@ -83,7 +83,7 @@ registerForEvent('onInit', function()
             end
         end
         if c > 0 then
-            s = "Unnoticed flags: " .. s
+            s = "Unnoticed facts: " .. s
         end
         print(s)
     end)
@@ -109,15 +109,20 @@ registerForEvent("onUpdate", function()
             LoadDetails()
         end 
         for i = botDeets, botDeets + factsToCheck do
-            if not Details.values[i] then Details.values[i] = 0 goto deetsConinue end
+            if not Details.values[i] then Details.values[i] = 0 goto deetsContinue end
             local fact = Details.names[i]
             if not fact then goto endDeets end --Deets is smaller than 500
             local currentFactVal = Game.CheckFactValue(fact) or Game.GetFact(fact)
+            local currentFactValSanitized = Game.CheckFactValue(string.sub(fact,1,-1)) or Game.GetFact(string.sub(fact,1,-1))
+            if currentFactVal ~= currentFactValSanitized then
+                print(fact)
+                currentFactVal = math.max(currentFactVal,currentFactValSanitized)
+            end
             if currentFactVal ~= Details.values[i] then
                 Details.values[i] = currentFactVal
                 Message[#Message+1] = fact .. ": " .. tostring(currentFactVal)
             end
-            ::deetsConinue::
+            ::deetsContinue::
         end
         ::endDeets::
     end
@@ -126,6 +131,11 @@ registerForEvent("onUpdate", function()
         local fact = Facts.names[i]
         if not fact then goto endFacts end --Deets is smaller than 500
         local currentFactVal = Game.CheckFactValue(fact) or Game.GetFact(fact)
+        local currentFactValSanitized = Game.CheckFactValue(string.sub(fact,1,-1)) or Game.GetFact(string.sub(fact,1,-1))
+        if currentFactVal ~= currentFactValSanitized then
+            print(fact)
+            currentFactVal = math.max(currentFactVal,currentFactValSanitized)
+        end
         if currentFactVal ~= Facts.values[i] then
             Facts.values[i] = currentFactVal
             Message[#Message+1] = fact .. ": " .. tostring(currentFactVal)
@@ -191,13 +201,11 @@ CheckPacifist =function()
         else
            b = "Failed"
         end
-        if Facts.values[0]>0 or (Game.GetFact("factlog_failedpacifist") and Game.GetFact("factlog_failedpacifist")>0) then
+        if (Facts.values[0] and Facts.values[0]>0) or (Game.GetFact("factlog_failedpacifist") and Game.GetFact("factlog_failedpacifist")>0) then
             b = "Failed"
         end
     return b
 end
-
-
 
 registerForEvent("onDraw", function()
     if(not isOverlayOpen) then

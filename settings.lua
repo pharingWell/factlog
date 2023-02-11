@@ -1,1 +1,1 @@
-return {true, true, false, true}
+return {true, true, true, true}
