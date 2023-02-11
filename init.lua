@@ -1,15 +1,52 @@
 Facts = {
-    init = false,
+    names = {}, --loaded in from file
+    values = {}
+}
+Details = {
+    loaded = false,
     names = {}, --loaded in from file
     values = {}
 }
 
+LoadDetails = function ()
+    local file = io.open("details.txt")
+    if(file) then
+        for line in file:lines() do
+            table.insert(Details.names, line)
+            table.insert(Details.values,0)
+        end
+    else
+        print("[[ERROR]]: details.txt missing from FactLog file system.")
+        return
+    end
+    Details.loaded = true
+end
+
+
 local GameSession = require('GameSession') --Game Session is copyright (c) 2021 psiberx
 DiffFacts = {}
+StoredData = require("settings")
+if StoredData == nil then
+    StoredData = {true,true,false,false}
+end
+
+GetStoredDataString = function ()
+    local s = "{"
+    for k, v in next, StoredData do
+        s = s .. tostring(v)
+        if next(StoredData, k) ~= nil then
+            s = s .. ", "
+        end
+
+    end
+    s = s .. "}"
+    return s
+end
+
 
 registerForEvent('onInit', function()
     local file = io.open("facts.txt")
-    if(not (file == nil)) then
+    if(file) then
         for line in file:lines() do
             table.insert(Facts.names, line)
             table.insert(Facts.values,0)
@@ -17,6 +54,9 @@ registerForEvent('onInit', function()
     else
         print("[[ERROR]]: facts.txt missing from FactLog file system.")
         return
+    end
+    if StoredData[4] then
+        LoadDetails()
     end
     Bbs = Game.GetBlackboardSystem()
     GameSession.StoreInDir('sessions') -- Set directory to store session data
@@ -34,15 +74,16 @@ registerForEvent('onInit', function()
     GameSession.OnEnd(function()
         print('Game Session Ended')
         GameSession.TrySave()
-        local diff = {}
-        for i,m in Facts.values do
-            if Facts.values[i] ~= DiffFacts[i] then
-                diff[#diff +1] = Facts.values[i]
+        local c = 0
+        local s = ""
+        for i,m in ipairs(Facts.values) do
+            if m ~= DiffFacts[i] then
+                s = s .. "[" .. Facts.names[i] .. "," .. tostring(m) .. "] "
+                c = c + 1
             end
         end
-        local s = ""
-        for i in pairs(diff) do
-            s = s .. diff[i] .. "\t"
+        if c > 0 then
+            s = "Unnoticed flags: " .. s
         end
         print(s)
     end)
@@ -52,38 +93,58 @@ Message = {}
 Duration = 5
 Tick = 0
 ShouldTick = false
-local modEnabled = require('mod_on')
-if modEnabled ~= false then
-	modEnabled = true
-end
-
 local bot = 0
+local botDeets = 0
+
 registerForEvent("onUpdate", function()
-    if not modEnabled then return end
+    if not StoredData[1] then return end --if mod is disabled
     if not GameSession.IsLoaded() then return end -- if the function inst ready, don't dump known facts
     Tick = Tick + 1
     local d = Duration*60
-    for i = bot, bot + 500 do
+    local factsToCheck = 500
+    --Check through the next 500 quest facts
+    
+    if StoredData[4] then --details is enabled
+        if not Details.loaded then
+            LoadDetails()
+        end 
+        for i = botDeets, botDeets + factsToCheck do
+            if not Details.values[i] then Details.values[i] = 0 goto deetsConinue end
+            local fact = Details.names[i]
+            if not fact then goto endDeets end --Deets is smaller than 500
+            local currentFactVal = Game.CheckFactValue(fact) or Game.GetFact(fact)
+            if currentFactVal ~= Details.values[i] then
+                Details.values[i] = currentFactVal
+                Message[#Message+1] = fact .. ": " .. tostring(currentFactVal)
+            end
+            ::deetsConinue::
+        end
+        ::endDeets::
+    end
+    for i = botDeets, botDeets + factsToCheck do
+        if not Facts.values[i] then Facts.values[i] = 0 goto factsConinue end
         local fact = Facts.names[i]
-        if not Facts.values[i] then Facts.values[i] = 0 goto continue end
+        if not fact then goto endFacts end --Deets is smaller than 500
         local currentFactVal = Game.CheckFactValue(fact) or Game.GetFact(fact)
         if currentFactVal ~= Facts.values[i] then
             Facts.values[i] = currentFactVal
             Message[#Message+1] = fact .. ": " .. tostring(currentFactVal)
         end
-        ::continue::
+        ::factsConinue::
+    ::endFacts::
     end
-    if PacifistMode and (Game.GetFact("gmpl_npc_killed_by_player")==1) then
+    -- Pacifist Fail Check
+    if StoredData[3] and (Game.GetFact("gmpl_npc_killed_by_player")==1) then
         Game.GetQuestsSystem():SetFactStr("factlog_failedpacifist",1)
-        PrintWarning("Failed pacifism. Reload save",3.00)
+        ShowWarning("Failed pacifism. Reload save",10.00)
         Facts.values[0] = 1
     end
-    bot = (bot + 100)%(#Facts.names)
+    -- Message print
     if Tick % d == d-1 then
         if #Message > 0 then
             local s = ""
             if #Message > 50 then --this is the opening load
-                if not EnableLogging then
+                if not StoredData[2] then
                     print("Opening load caught")
                     GameSession.TrySave()
                 else 
@@ -105,12 +166,15 @@ registerForEvent("onUpdate", function()
                 end
             end
             ShowMessage(s)
-            if EnableLogging then
+            if StoredData[2] then
                 print(s)
             end
         end
         Tick = 0
     end
+    --Loop around what the next x facts are
+    bot = (bot + factsToCheck)%(#Facts.names)
+    botDeets = (botDeets + factsToCheck)%(#Details.names)
 end)
 
 local isOverlayOpen = false
@@ -120,13 +184,6 @@ end)
 registerForEvent("onOverlayClose", function()
     isOverlayOpen = false
 end)
-
-PacifistMode = require('pacifist_mode')
-
-if PacifistMode ~= true then
-	PacifistMode = false
-end
-
 CheckPacifist =function()
     local b = nil
         if Game.GetFact("gmpl_npc_killed_by_player") == nil or Game.GetFact("gmpl_npc_killed_by_player") < 1 then
@@ -134,64 +191,44 @@ CheckPacifist =function()
         else
            b = "Failed"
         end
-        if Facts.values[0]>0 or Game.GetFact("factlog_failedpacifist")>0 then
+        if Facts.values[0]>0 or (Game.GetFact("factlog_failedpacifist") and Game.GetFact("factlog_failedpacifist")>0) then
             b = "Failed"
         end
     return b
 end
 
-EnableLogging = require('logging_state')
-
-if EnableLogging ~= false then
-	EnableLogging = true
-end
 
 
 registerForEvent("onDraw", function()
     if(not isOverlayOpen) then
-        -- if PacifistMode then
-        --     ImGui.Begin("Fact Log", ImGuiWindowFlags.AlwaysAutoResize)
-        --     ImGui.Text("Pacifist Mode: " .. CheckPacifist())
-        --     ImGui.End()
-        -- end
         return
     end
     ImGui.PushStyleVar(ImGuiStyleVar.WindowMinSize, 300, 40)
     ImGui.Begin("Fact Log", ImGuiWindowFlags.AlwaysAutoResize)
 
     local modToggled = false
-    modEnabled, modToggled= ImGui.Checkbox("Enable mod", modEnabled)
-    if modToggled then
-        local stateFile = io.open('mod_on.lua', 'w')
-        if stateFile then
-            stateFile:write('return ')
-            stateFile:write(tostring(modEnabled))
-            stateFile:close()
-        end
-    end
-
     local logToggled = false
-    EnableLogging, logToggled= ImGui.Checkbox("Log to console", EnableLogging)
-    if logToggled then
-        local stateFile = io.open('logging_state.lua', 'w')
-        if stateFile then
-            stateFile:write('return ')
-            stateFile:write(tostring(EnableLogging))
-            stateFile:close()
-        end
-    end
     local pacToggled = false
-    PacifistMode, pacToggled= ImGui.Checkbox("Pacifist mode", PacifistMode)
-    if pacToggled then
-        local stateFile = io.open('pacifist_mode.lua', 'w')
+    local deetsToggled = false
+    StoredData[1], modToggled= ImGui.Checkbox("Enable mod", StoredData[1])
+    StoredData[2], logToggled= ImGui.Checkbox("Log to console", StoredData[2])
+    StoredData[3], pacToggled= ImGui.Checkbox("Pacifist mode", StoredData[3])
+    local a = modToggled or logToggled or pacToggled
+    if StoredData[3] then
+        ImGui.Text("Pacifist Mode: " .. CheckPacifist())
+    end
+    StoredData[4], deetsToggled= ImGui.Checkbox("Details mode", StoredData[4])
+    a = a or deetsToggled
+    if StoredData[4] then
+        ImGui.Text("This feature is best used during quests")
+    end
+    if (a) then
+        local stateFile = io.open('settings.lua', 'w')
         if stateFile then
             stateFile:write('return ')
-            stateFile:write(tostring(PacifistMode))
+            stateFile:write(GetStoredDataString())
             stateFile:close()
         end
-    end
-    if PacifistMode then
-        ImGui.Text("Pacifist Mode: " .. CheckPacifist())
     end
     ImGui.End()
     ImGui.PopStyleVar(1)
@@ -202,7 +239,6 @@ function ShowMessage(text)
 	if text == nil or text == "" then
 		return
 	end
-
 	local message = SimpleScreenMessage.new()
 	message.message = text
 	message.isShown = true
@@ -219,27 +255,8 @@ function ShowMessage(text)
 	)
 end
 
-function PrintString(text)
-    if text == nil or text == "" then
-		return
-	end
-    --
-    
-    local m = SimpleScreenMessage.new()
-    m.message = text
-    m.isShown = true
 
-    local blackboardDefs = Game.GetAllBlackboardDefs()
-	local blackboardUI = Game.GetBlackboardSystem():Get(blackboardDefs.UI_Notifications)
-	blackboardUI:SetVariant(
-        blackboardDefs.UI_Notifications.OnscreenMessage,
-		ToVariant(m),
-		true
-	)
-end
-
-
-function PrintWarning(text, duration)
+function ShowWarning(text, duration)
 	if text == nil or text == "" then
 		return
 	end
