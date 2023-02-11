@@ -1,1 +1,3 @@
-sessions/!*
+sessions/*
+flaglog.log
+.vscode/settings.json
