@@ -22,7 +22,7 @@ LoadDetails = function ()
     Details.loaded = true
 end
 
-
+local qs = nil
 local GameSession = require('GameSession') --Game Session is copyright (c) 2021 psiberx
 DiffFacts = {}
 StoredData = require("settings")
@@ -59,6 +59,7 @@ registerForEvent('onInit', function()
         LoadDetails()
     end
     Bbs = Game.GetBlackboardSystem()
+    qs = Game.GetQuestsSystem()
     GameSession.StoreInDir('sessions') -- Set directory to store session data
     GameSession.Persist(Facts.values) -- Link the data that should be watched and persisted 
     GameSession.OnLoad(function()
@@ -88,22 +89,45 @@ registerForEvent('onInit', function()
         print(s)
     end)
 end)
-
+--@TODO add button to print contents to file 
 Message = {}
 Duration = 5
 Tick = 0
 ShouldTick = false
 local bot = 0
 local botDeets = 0
-
+local queuedFacts = {}
+local queuedFactsHash = {}
 registerForEvent("onUpdate", function()
+    if qs == nil then
+        qs = Game.GetQuestsSystem()
+        if qs == nil then return end
+    end
     if not StoredData[1] then return end --if mod is disabled
     if not GameSession.IsLoaded() then return end -- if the function inst ready, don't dump known facts
     Tick = Tick + 1
     local d = Duration*60
     local factsToCheck = 500
     --Check through the next 500 quest facts
-    
+    for i = botDeets, botDeets + factsToCheck do
+        if not Facts.values[i] then Facts.values[i] = 0 goto factsConinue end
+        local fact = Facts.names[i]
+        if not fact then goto endFacts end --Deets is smaller than 500
+        local currentFactVal = qs.GetFactStr(qs,fact) or Game.GetFact(fact)
+        local currentFactValSanitized = qs.GetFactStr(qs,string.sub(fact,1,-1)) or Game.GetFact(string.sub(fact,1,-1))
+        if currentFactVal ~= currentFactValSanitized then
+            print(fact)
+            currentFactVal = math.max(currentFactVal,currentFactValSanitized)
+        end
+        if currentFactVal ~= Facts.values[i] then
+            Facts.values[i] = currentFactVal
+            queuedFacts[#queuedFacts+1] = i
+            queuedFactsHash[fact] = true
+            Message[#Message+1] = fact .. ": " .. tostring(currentFactVal)
+        end
+        ::factsConinue::
+    ::endFacts::
+    end
     if StoredData[4] then --details is enabled
         if not Details.loaded then
             LoadDetails()
@@ -112,36 +136,21 @@ registerForEvent("onUpdate", function()
             if not Details.values[i] then Details.values[i] = 0 goto deetsContinue end
             local fact = Details.names[i]
             if not fact then goto endDeets end --Deets is smaller than 500
-            local currentFactVal = Game.CheckFactValue(fact) or Game.GetFact(fact)
-            local currentFactValSanitized = Game.CheckFactValue(string.sub(fact,1,-1)) or Game.GetFact(string.sub(fact,1,-1))
+            local currentFactVal = qs.GetFactStr(qs,fact) or Game.GetFact(fact)
+            local currentFactValSanitized = qs.GetFactStr(qs,string.sub(fact,1,-1)) or Game.GetFact(string.sub(fact,1,-1))
             if currentFactVal ~= currentFactValSanitized then
                 print(fact)
                 currentFactVal = math.max(currentFactVal,currentFactValSanitized)
             end
             if currentFactVal ~= Details.values[i] then
                 Details.values[i] = currentFactVal
-                Message[#Message+1] = fact .. ": " .. tostring(currentFactVal)
+                if queuedFactsHash[fact]==nil then
+                    Message[#Message+1] = "D: " .. fact .. ": " .. tostring(currentFactVal)
+                end
             end
             ::deetsContinue::
         end
         ::endDeets::
-    end
-    for i = botDeets, botDeets + factsToCheck do
-        if not Facts.values[i] then Facts.values[i] = 0 goto factsConinue end
-        local fact = Facts.names[i]
-        if not fact then goto endFacts end --Deets is smaller than 500
-        local currentFactVal = Game.CheckFactValue(fact) or Game.GetFact(fact)
-        local currentFactValSanitized = Game.CheckFactValue(string.sub(fact,1,-1)) or Game.GetFact(string.sub(fact,1,-1))
-        if currentFactVal ~= currentFactValSanitized then
-            print(fact)
-            currentFactVal = math.max(currentFactVal,currentFactValSanitized)
-        end
-        if currentFactVal ~= Facts.values[i] then
-            Facts.values[i] = currentFactVal
-            Message[#Message+1] = fact .. ": " .. tostring(currentFactVal)
-        end
-        ::factsConinue::
-    ::endFacts::
     end
     -- Pacifist Fail Check
     if StoredData[3] and (Game.GetFact("gmpl_npc_killed_by_player")==1) then
@@ -171,6 +180,10 @@ registerForEvent("onUpdate", function()
             for i,m in ipairs(Message) do
                 s = s .. m .. "\n"
                 table.remove(Message,i)
+                if queuedFacts and #queuedFacts > 0 and queuedFacts[0] then
+                    queuedFactsHash[queuedFacts[0]] = nil
+                    table.remove(queuedFacts,0)
+                end
                 if i>3 then
                     break
                 end
@@ -194,7 +207,7 @@ end)
 registerForEvent("onOverlayClose", function()
     isOverlayOpen = false
 end)
-CheckPacifist =function()
+CheckPacifist = function()
     local b = nil
         if Game.GetFact("gmpl_npc_killed_by_player") == nil or Game.GetFact("gmpl_npc_killed_by_player") < 1 then
             b = "Still Possible"
