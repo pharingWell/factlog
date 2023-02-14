@@ -7,13 +7,17 @@ Details = {
     names = {}, --loaded in from file
     values = {}
 }
-
+Fact = {
+    name = "",
+    fact = -1
+}
+DiffFacts = {}
 LoadDetails = function ()
     local file = io.open("details.txt")
     if(file) then
         for line in file:lines() do
             table.insert(Details.names, line)
-            table.insert(Details.values,0)
+            table.insert(Details.values,-1)
         end
     else
         print("[[ERROR]]: details.txt missing from FactLog file system.")
@@ -24,7 +28,7 @@ end
 
 local qs = nil
 local GameSession = require('GameSession') --Game Session is copyright (c) 2021 psiberx
-DiffFacts = {}
+
 StoredData = require("settings")
 if StoredData == nil then
     StoredData = {true,true,false,false}
@@ -49,7 +53,7 @@ registerForEvent('onInit', function()
     if(file) then
         for line in file:lines() do
             table.insert(Facts.names, line)
-            table.insert(Facts.values,0)
+            table.insert(Facts.values,-1)
         end
     else
         print("[[ERROR]]: facts.txt missing from FactLog file system.")
@@ -61,32 +65,20 @@ registerForEvent('onInit', function()
     Bbs = Game.GetBlackboardSystem()
     qs = Game.GetQuestsSystem()
     GameSession.StoreInDir('sessions') -- Set directory to store session data
-    GameSession.Persist(Facts.values) -- Link the data that should be watched and persisted 
+    --GameSession.Persist(Facts.values) -- Link the data that should be watched and persisted 
+    GameSession.Persist(DiffFacts)
     GameSession.OnLoad(function()
-        print("loaded persisted data")
+        print("Loaded Saved Data from session file")
     end)
     print("FactLog Initalized")
     GameSession.OnStart(function()
         print('Game Session Started')
         GameSession.TryLoad()
-        DiffFacts = Facts.values
     end)
 
     GameSession.OnEnd(function()
         print('Game Session Ended')
         GameSession.TrySave()
-        local c = 0
-        local s = ""
-        for i,m in ipairs(Facts.values) do
-            if m ~= DiffFacts[i] then
-                s = s .. "[" .. Facts.names[i] .. "," .. tostring(m) .. "] "
-                c = c + 1
-            end
-        end
-        if c > 0 then
-            s = "Unnoticed facts: " .. s
-        end
-        print(s)
     end)
 end)
 --@TODO add button to print contents to file 
@@ -120,10 +112,13 @@ registerForEvent("onUpdate", function()
             currentFactVal = math.max(currentFactVal,currentFactValSanitized)
         end
         if currentFactVal ~= Facts.values[i] then
-            Facts.values[i] = currentFactVal
-            queuedFacts[#queuedFacts+1] = i
-            queuedFactsHash[fact] = true
-            Message[#Message+1] = fact .. ": " .. tostring(currentFactVal)
+            if queuedFactsHash[fact]==nil then
+                DiffFacts[tostring(fact)] = currentFactVal
+                Facts.values[i] = currentFactVal
+                queuedFacts[#queuedFacts+1] = i
+                queuedFactsHash[fact] = true
+                Message[#Message+1] = fact .. ":: " .. tostring(currentFactVal)
+            end
         end
         ::factsConinue::
     ::endFacts::
@@ -145,7 +140,11 @@ registerForEvent("onUpdate", function()
             if currentFactVal ~= Details.values[i] then
                 Details.values[i] = currentFactVal
                 if queuedFactsHash[fact]==nil then
-                    Message[#Message+1] = "D: " .. fact .. ": " .. tostring(currentFactVal)
+                    DiffFacts[fact..""] = currentFactVal
+                    print(DiffFacts[fact])
+                    queuedFacts[#queuedFacts+1] = i
+                    queuedFactsHash[fact] = true
+                    Message[#Message+1] = fact .. ": " .. tostring(currentFactVal)
                 end
             end
             ::deetsContinue::
@@ -161,14 +160,14 @@ registerForEvent("onUpdate", function()
     -- Message print
     if Tick % d == d-1 then
         if #Message > 0 then
-            local s = ""
             if #Message > 50 then --this is the opening load
+                local s = ""
                 if not StoredData[2] then
                     print("Opening load caught")
                     GameSession.TrySave()
                 else 
                     for i,m in ipairs(Message) do
-                        s = s .. m .. "  "
+                        s = s .. m .. ", "
                     end
                     print(s)
                 end
@@ -178,7 +177,7 @@ registerForEvent("onUpdate", function()
                 return
             end
             for i,m in ipairs(Message) do
-                s = s .. m .. "\n"
+                local s = s .. m .. "\n"
                 table.remove(Message,i)
                 if queuedFacts and #queuedFacts > 0 and queuedFacts[0] then
                     queuedFactsHash[queuedFacts[0]] = nil
@@ -232,16 +231,26 @@ registerForEvent("onDraw", function()
     local pacToggled = false
     local deetsToggled = false
     StoredData[1], modToggled= ImGui.Checkbox("Enable mod", StoredData[1])
-    StoredData[2], logToggled= ImGui.Checkbox("Log to console", StoredData[2])
-    StoredData[3], pacToggled= ImGui.Checkbox("Pacifist mode", StoredData[3])
-    local a = modToggled or logToggled or pacToggled
-    if StoredData[3] then
-        ImGui.Text("Pacifist Mode: " .. CheckPacifist())
-    end
-    StoredData[4], deetsToggled= ImGui.Checkbox("Details mode", StoredData[4])
-    a = a or deetsToggled
-    if StoredData[4] then
-        ImGui.Text("This feature is best used during quests")
+    local a = modToggled
+    if StoredData[1] then
+        StoredData[2], logToggled= ImGui.Checkbox("Log to console", StoredData[2])
+        StoredData[3], pacToggled= ImGui.Checkbox("Pacifist mode", StoredData[3])
+        a = a or logToggled or pacToggled
+        if StoredData[3] then
+            ImGui.Text("Pacifist Mode: " .. CheckPacifist())
+        end
+        StoredData[4], deetsToggled= ImGui.Checkbox("Details mode", StoredData[4])
+        a = a or deetsToggled
+        if StoredData[4] then
+            ImGui.Text("This feature is best used during quests")
+        end
+        if ImGui.Button("Dump Facts", 100, 30) then 
+            local s = ""
+            for key, value in ipairs(DiffFacts) do
+                s = s .. key .. ": " .. value ", "
+            end
+            if s == "" then print("No facts to dump") else print(s) end
+        end
     end
     if (a) then
         local stateFile = io.open('settings.lua', 'w')
